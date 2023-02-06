@@ -39,4 +39,4 @@ vignettes/*.pdf
 .Renviron
 
 # R Projects
-.Rproj
+*.Rproj

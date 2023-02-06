@@ -37,8 +37,8 @@ teamAbbreviations <- c(
   "WAS"
 )
 
-nbaDat <- lapply(teamAbbreviations[1], function(team) {
-  browser()
+nbaGameURLs <- lapply(teamAbbreviations, function(team) {
+  # browser()
   
   teamUrl <-
     paste0("https://www.basketball-reference.com/teams/",
@@ -60,39 +60,74 @@ nbaDat <- lapply(teamAbbreviations[1], function(team) {
     .[, GameDate := substr(GameFiles,1,8) %>% lubridate::ymd()] %>% 
     .[GameDate < Sys.Date(), GameFiles]
   
+  wait <- sessionNBA$delay
+  
+  Sys.sleep(wait)
+  
   return(gamesToPull)
   
-})
+}) %>% 
+  unlist() %>% 
+  unique()
 
-%>%
-  paste0("https://www.basketball-reference.com/boxscores/", .)
+nbaGameURLs <- paste0("https://www.basketball-reference.com/boxscores/",nbaGameURLs)
 
-
-
-
-teamDat %>% html_elements("a")
-session(teamUrl)
-
-html_element("body") %>%
-  html_element("div") %>% 
-  html_element(".nba-stats-content-block") %>% 
-  html_element("section")
-%>% html_element('.Crom_table__p1iZz')
-
-nbaDat %>% 
-  html_element("body") %>% 
-  html_element("div") %>% 
-  html_element(".Layout_withSubNav__ByKRF") %>% 
-  html_element(".Layout_mainContent__jXliI") %>% 
-  html_element(".MaxWidthContainer_mwc__ID5AG") %>% 
-  html_element(".Block_block__62M07.nba-stats-content-block") %>% 
-  html_element(".Block_blockContent__6iJ_n") %>% 
-  html_element(".StatsTableSkeleton_skeleton__ccF3w") %>% 
-  html_element(".StatsTableSkeleton_pagination__gWVO8")
-
-nbaDat %>% 
-  html_element(css = ".GameBoxscoreTablePlayer_gbp__mPF20") %>% 
-  html_element("div") %>% 
-  html_element(".Layout_withSubNav__ByKRF") %>% 
-  html_element(".Layout_mainContent__jXliI") %>% 
-  html_element(".MaxWidthContainer_mwc__ID5AG") %>% html_attrs()
+nbaDat <- lapply(nbaGameURLs, function(gameURL){
+  
+  # browser()
+  
+  sessionNBA <- polite::bow(gameURL)
+  
+  boxscore <- scrape(sessionNBA)
+  
+  awayTeam <- boxscore %>%
+    html_elements(".table_wrapper") %>%
+    .[[3]] %>%
+    html_attr("id") %>%
+    gsub(pattern = "^all_box-", replacement = "") %>%
+    substr(start = 1, stop = 3)
+  
+  homeTeam <- boxscore %>%
+    html_elements(".table_wrapper") %>%
+    .[[11]] %>%
+    html_attr("id") %>%
+    gsub(pattern = "^all_box-", replacement = "") %>%
+    substr(start = 1, stop = 3)
+  
+  awayBoxsore <- boxscore %>%
+    html_elements(".table_wrapper") %>%
+    .[[3]] %>% 
+    html_elements(".table_container") %>% 
+    html_table(header = TRUE, trim = TRUE) %>% 
+    .[[1]] %>% 
+    data.table()
+  
+  names(awayBoxsore) <- awayBoxsore[1] %>% as.character()
+  names(awayBoxsore)[1] <- "Player"
+  
+  awayBoxsore <- awayBoxsore[!Player %in% c("Starters","Reserves","Team Totals")]
+  awayBoxsore[, Team := awayTeam]
+  
+  homeBoxsore <- boxscore %>%
+    html_elements(".table_wrapper") %>%
+    .[[11]] %>% 
+    html_elements(".table_container") %>% 
+    html_table(header = TRUE, trim = TRUE) %>% 
+    .[[1]] %>% 
+    data.table()
+  
+  names(homeBoxsore) <- homeBoxsore[1] %>% as.character()
+  names(homeBoxsore)[1] <- "Player"
+  
+  homeBoxsore <- homeBoxsore[!Player %in% c("Starters","Reserves","Team Totals")]
+  homeBoxsore[, Team := homeTeam]
+  
+  boxscore <- rbind(awayBoxsore, homeBoxsore)
+  
+  wait <- sessionNBA$delay
+  
+  Sys.sleep(wait)
+  
+  return(boxscore)
+  
+  })
