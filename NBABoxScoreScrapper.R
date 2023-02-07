@@ -80,49 +80,79 @@ nbaDat <- lapply(nbaGameURLs, function(gameURL){
   
   boxscore <- scrape(sessionNBA)
   
-  awayTeam <- boxscore %>%
+  teams <- boxscore %>%
     html_elements(".table_wrapper") %>%
-    .[[3]] %>%
-    html_attr("id") %>%
-    gsub(pattern = "^all_box-", replacement = "") %>%
-    substr(start = 1, stop = 3)
+    lapply(., function(node) {
+      html_attr(x = node, name = "id") %>%
+        gsub(pattern = "^all_box-", replacement = "") %>%
+        substr(start = 1, stop = 3)
+    }) %>%
+    unique() %>%
+    unlist() %>%
+    setdiff("all")
   
-  homeTeam <- boxscore %>%
-    html_elements(".table_wrapper") %>%
-    .[[11]] %>%
-    html_attr("id") %>%
-    gsub(pattern = "^all_box-", replacement = "") %>%
-    substr(start = 1, stop = 3)
+  if(length(teams) != 2)
+    next
   
-  awayBoxsore <- boxscore %>%
-    html_elements(".table_wrapper") %>%
-    .[[3]] %>% 
-    html_elements(".table_container") %>% 
+  awayTeam <- teams[1]
+  homeTeam <- teams[2]
+  
+  # Away Box Score Basic
+  awayBoxsoreBasic <- boxscore %>%
+    html_element(paste0("#all_box-",awayTeam,"-game-basic")) %>% 
     html_table(header = TRUE, trim = TRUE) %>% 
-    .[[1]] %>% 
     data.table()
   
-  names(awayBoxsore) <- awayBoxsore[1] %>% as.character()
-  names(awayBoxsore)[1] <- "Player"
+  names(awayBoxsoreBasic) <- awayBoxsoreBasic[1] %>% as.character()
+  names(awayBoxsoreBasic)[1] <- "Player"
   
-  awayBoxsore <- awayBoxsore[!Player %in% c("Starters","Reserves","Team Totals")]
-  awayBoxsore[, Team := awayTeam]
+  awayBoxsoreBasic <- awayBoxsoreBasic[!Player %in% c("Starters","Reserves","Team Totals")]
+  awayBoxsoreBasic[, Team := awayTeam]
+  awayBoxsoreBasic[, Opponent := homeTeam]
   
-  homeBoxsore <- boxscore %>%
-    html_elements(".table_wrapper") %>%
-    .[[11]] %>% 
-    html_elements(".table_container") %>% 
+  # Away Box Score Advanced
+  awayBoxsoreAdv <- boxscore %>%
+    html_element(paste0("#all_box-",awayTeam,"-game-advanced")) %>% 
     html_table(header = TRUE, trim = TRUE) %>% 
-    .[[1]] %>% 
     data.table()
   
-  names(homeBoxsore) <- homeBoxsore[1] %>% as.character()
-  names(homeBoxsore)[1] <- "Player"
+  names(awayBoxsoreAdv) <- awayBoxsoreAdv[1] %>% as.character()
+  names(awayBoxsoreAdv)[1] <- "Player"
   
-  homeBoxsore <- homeBoxsore[!Player %in% c("Starters","Reserves","Team Totals")]
-  homeBoxsore[, Team := homeTeam]
+  awayBoxsoreAdv <- awayBoxsoreAdv[!Player %in% c("Starters","Reserves","Team Totals")]
   
-  boxscore <- rbind(awayBoxsore, homeBoxsore)
+  # Home Box Score Basic
+  homeBoxsoreBasic <- boxscore %>%
+    html_element(paste0("#all_box-",homeTeam,"-game-basic")) %>% 
+    html_table(header = TRUE, trim = TRUE) %>% 
+    data.table()
+  
+  names(homeBoxsoreBasic) <- homeBoxsoreBasic[1] %>% as.character()
+  names(homeBoxsoreBasic)[1] <- "Player"
+  
+  homeBoxsoreBasic <- homeBoxsoreBasic[!Player %in% c("Starters","Reserves","Team Totals")]
+  homeBoxsoreBasic[, Team := homeTeam]
+  homeBoxsoreBasic[, Opponent := awayTeam]
+  
+  # Home Box Score Advanced
+  homeBoxsoreAdv <- boxscore %>%
+    html_element(paste0("#all_box-",homeTeam,"-game-advanced")) %>% 
+    html_table(header = TRUE, trim = TRUE) %>% 
+    data.table()
+  
+  names(homeBoxsoreAdv) <- homeBoxsoreAdv[1] %>% as.character()
+  names(homeBoxsoreAdv)[1] <- "Player"
+  
+  homeBoxsoreAdv <- homeBoxsoreAdv[!Player %in% c("Starters","Reserves","Team Totals")]
+  
+  # Merge Tables
+  awayBoxsore <- awayBoxsoreBasic[awayBoxsoreAdv[,-"MP"],
+                                  on = .(Player)]
+  
+  homeBoxsore <- homeBoxsoreBasic[homeBoxsoreAdv[,-"MP"],
+                                  on = .(Player)]
+  
+  boxscore <- rbindlist(list(homeBoxsore, awayBoxsore), fill = TRUE, use.names = TRUE)
   
   wait <- sessionNBA$delay
   
