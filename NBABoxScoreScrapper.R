@@ -70,7 +70,7 @@ nbaGameURLs <- lapply(teamAbbreviations, function(team) {
   unlist() %>% 
   unique()
 
-nbaDat <- lapply(nbaGameURLs[1], function(gameURL){
+nbaDat <- lapply(nbaGameURLs, function(gameURL){
   
   # browser()
   gameDate <- substr(gameURL,1,8) %>% lubridate::ymd()
