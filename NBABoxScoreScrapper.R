@@ -70,11 +70,11 @@ nbaGameURLs <- lapply(teamAbbreviations, function(team) {
   unlist() %>% 
   unique()
 
-nbaGameURLs <- paste0("https://www.basketball-reference.com/boxscores/",nbaGameURLs)
-
-nbaDat <- lapply(nbaGameURLs, function(gameURL){
+nbaDat <- lapply(nbaGameURLs[1], function(gameURL){
   
   # browser()
+  gameDate <- substr(gameURL,1,8) %>% lubridate::ymd()
+  gameURL <- paste0("https://www.basketball-reference.com/boxscores/",gameURL)
   
   sessionNBA <- polite::bow(gameURL)
   
@@ -109,6 +109,7 @@ nbaDat <- lapply(nbaGameURLs, function(gameURL){
   awayBoxsoreBasic <- awayBoxsoreBasic[!Player %in% c("Starters","Reserves","Team Totals")]
   awayBoxsoreBasic[, Team := awayTeam]
   awayBoxsoreBasic[, Opponent := homeTeam]
+  awayBoxsoreBasic[, GameDate := gameDate]
   
   # Away Box Score Advanced
   awayBoxsoreAdv <- boxscore %>%
@@ -133,6 +134,7 @@ nbaDat <- lapply(nbaGameURLs, function(gameURL){
   homeBoxsoreBasic <- homeBoxsoreBasic[!Player %in% c("Starters","Reserves","Team Totals")]
   homeBoxsoreBasic[, Team := homeTeam]
   homeBoxsoreBasic[, Opponent := awayTeam]
+  homeBoxsoreBasic[, GameDate := gameDate]
   
   # Home Box Score Advanced
   homeBoxsoreAdv <- boxscore %>%
@@ -161,3 +163,7 @@ nbaDat <- lapply(nbaGameURLs, function(gameURL){
   return(boxscore)
   
   })
+
+nbaDat <- nbaDat %>% rbindlist()
+
+saveRDS(object = nbaDat, file = paste0(getwd(),"/BoxscoreData",format(Sys.Date(), "%Y%m%d"),".RDS"))
