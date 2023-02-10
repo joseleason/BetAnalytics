@@ -108,6 +108,7 @@ nbaDat <- lapply(nbaGameURLs, function(gameURL){
   
   awayBoxsoreBasic <- awayBoxsoreBasic[!Player %in% c("Starters","Reserves","Team Totals")]
   awayBoxsoreBasic[, Team := awayTeam]
+  awayBoxsoreBasic[, Location := "Away"]
   awayBoxsoreBasic[, Opponent := homeTeam]
   awayBoxsoreBasic[, GameDate := gameDate]
   
@@ -133,6 +134,7 @@ nbaDat <- lapply(nbaGameURLs, function(gameURL){
   
   homeBoxsoreBasic <- homeBoxsoreBasic[!Player %in% c("Starters","Reserves","Team Totals")]
   homeBoxsoreBasic[, Team := homeTeam]
+  homeBoxsoreBasic[, Location := "Home"]
   homeBoxsoreBasic[, Opponent := awayTeam]
   homeBoxsoreBasic[, GameDate := gameDate]
   
