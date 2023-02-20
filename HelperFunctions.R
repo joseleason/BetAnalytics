@@ -216,7 +216,7 @@ calculate_offensive_role <- function(unadjustedOffensiveRole, teamMinuteWeighted
   result <- pmin(5, pmax(1, unadjustedOffensiveRole + (3.0 - teamMinuteWeightedAverageOffensiveRole)))
 }
 
-calculte_unadjusted_position <-
+calculate_unadjusted_position <-
   function(totalRebounds,
            steals,
            personalFouls,
