@@ -116,9 +116,9 @@ calculate_free_throw_rate <-
 
 calculate_three_point_rate <-
   function(fieldGoalAttempts,
-           freeThrowAttempts) {
+           threePointerAttempts) {
     result <-
-      freeThrowAttempts / fieldGoalAttempts
+      threePointerAttempts / fieldGoalAttempts
     
   }
 
