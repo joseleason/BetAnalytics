@@ -19,7 +19,7 @@ calculate_team_assist_percentage <-
   function(teamAssists,
            teamFieldGoalsMade) {
     result <-
-      100 * assists / teamFieldGoalsMade
+      100 * teamAssists / teamFieldGoalsMade
   }
 
 calculate_block_percentage <- function(blocks,
@@ -35,7 +35,7 @@ calculate_team_block_percentage <- function(teamBlocks,
                                             opponentFieldGoalAttempt,
                                             opponentThreePointAttempt) {
   result <-
-    100 * (blocks / (opponentFieldGoalAttempt - opponentThreePointAttempt))
+    100 * (teamBlocks / (opponentFieldGoalAttempt - opponentThreePointAttempt))
   
 }
 
@@ -148,9 +148,7 @@ calculate_steal_percentage <- function(steals,
 }
 
 calculate_team_steal_percentage <- function(steals,
-                                       opponentPossessions,
-                                       mintesPlayed,
-                                       teamMinutesPlayed) {
+                                       opponentPossessions) {
   result <-
     100 * (steals / opponentPossessions)
 }

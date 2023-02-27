@@ -2,6 +2,9 @@ library(tidyverse)
 library(tidymodels)
 library(data.table)
 library(lubridate)
+library(shapviz)
+library(kernelshap)
+
 source("HelperFunctions.R")
 dat <- readRDS(file = "BoxscoreData20230210.RDS") %>% data.table()
 
@@ -146,6 +149,28 @@ setnames(
   ) 
 )
 
+dropUs <- c('TrueShootingPercentage',
+            'EffectiveFieldGoalPercentage',
+            'ThreePointAttemptRate',
+            'FreeThrowAttemptRate',
+            'OffensiveReboundPercentage',
+            'DefensiveReboundPercentage',
+            'TotalReboundPercentage',
+            'AssistPercentage',
+            'StealPercentage',
+            'BlockPercentage',
+            'TurnoverPercentage',
+            'UsagePercentage',
+            'OffensiveRating',
+            'DefensiveRating',
+            'BoxPlusMinus',
+            'FieldGoalsPercentage',
+            'ThreePointersPercentage',
+            'FreeThrowsPercentage',
+            'PlusMinus'
+)
+
+dat[, (dropUs) := NULL]
 
 columnToSum <-
   c(
@@ -166,12 +191,6 @@ columnToSum <-
     "PersonalFouls",
     "MinutesPlayed"
   )
-
-columnToShift <- c('PlusMinus',
-                   'UsagePercentage',
-                   'OffensiveRating',
-                   'DefensiveRating',
-                   'BoxPlusMinus')
 
 # Player Recency Stats ####
 setorder(dat, Team, Player, GameDate)
@@ -684,7 +703,7 @@ dat[,
 
 ## 10 Game ####
 dat[,
-    TeamPossesions0 := calculate_possessions(
+    TeamPossesions10 := calculate_possessions(
       teamFieldGoalsMade = TeamFieldGoalsMade10,
       teamFieldGoalAttempts = TeamFieldGoalsAttempted10,
       teamFreeThrowAttempts = TeamFreeThrowsAttempted10,
@@ -1395,7 +1414,7 @@ dat[, ShotPercentage10 := calculate_shoot_percentage(fieldGoalAttempts = FieldGo
 
 ### Season ####
 
-dat[FouledPercentageToDate := calculate_fouled_percentage(
+dat[,FouledPercentageToDate := calculate_fouled_percentage(
   freeThrowAttempts = FreeThrowsAttemptedToDate,
   teamFreeThrowAttempts = TeamFreeThrowsAttemptedToDate,
   opponentPersonalFouls = OpponentPersonalFoulsToDate,
@@ -1404,7 +1423,7 @@ dat[FouledPercentageToDate := calculate_fouled_percentage(
 
 ### 1 Game ####
 
-dat[FouledPercentage1 := calculate_fouled_percentage(
+dat[,FouledPercentage1 := calculate_fouled_percentage(
   freeThrowAttempts = FreeThrowsAttempted1,
   teamFreeThrowAttempts = TeamFreeThrowsAttempted1,
   opponentPersonalFouls = OpponentPersonalFouls1,
@@ -1413,7 +1432,7 @@ dat[FouledPercentage1 := calculate_fouled_percentage(
 
 ### 3 Game ####
 
-dat[FouledPercentage3 := calculate_fouled_percentage(
+dat[,FouledPercentage3 := calculate_fouled_percentage(
   freeThrowAttempts = FreeThrowsAttempted3,
   teamFreeThrowAttempts = TeamFreeThrowsAttempted3,
   opponentPersonalFouls = OpponentPersonalFouls3,
@@ -1422,7 +1441,7 @@ dat[FouledPercentage3 := calculate_fouled_percentage(
 
 ### 5 Game ####
 
-dat[FouledPercentage5 := calculate_fouled_percentage(
+dat[,FouledPercentage5 := calculate_fouled_percentage(
   freeThrowAttempts = FreeThrowsAttempted5,
   teamFreeThrowAttempts = TeamFreeThrowsAttempted5,
   opponentPersonalFouls = OpponentPersonalFouls5,
@@ -1431,9 +1450,523 @@ dat[FouledPercentage5 := calculate_fouled_percentage(
 
 ### 10 Game ####
 
-dat[FouledPercentage10 := calculate_fouled_percentage(
+dat[,FouledPercentage10 := calculate_fouled_percentage(
   freeThrowAttempts = FreeThrowsAttempted10,
   teamFreeThrowAttempts = TeamFreeThrowsAttempted10,
   opponentPersonalFouls = OpponentPersonalFouls10,
   touches = Touches10
 )]
+
+# Advanced Team Stats ####
+
+## Assist Percentage ####
+
+### Season ####
+
+dat[, TeamAssistPercentageToDate := calculate_team_assist_percentage(teamAssists = TeamAssistsToDate, teamFieldGoalsMade = TeamFieldGoalsMadeToDate)]
+
+### 1 Game ####
+
+dat[, TeamAssistPercentage1 := calculate_team_assist_percentage(teamAssists = TeamAssists1, teamFieldGoalsMade = TeamFieldGoalsMade1)]
+
+### 3 Game ####
+
+dat[, TeamAssistPercentage3 := calculate_team_assist_percentage(teamAssists = TeamAssists3, teamFieldGoalsMade = TeamFieldGoalsMade3)]
+
+### 5 Game ####
+
+dat[, TeamAssistPercentage5 := calculate_team_assist_percentage(teamAssists = TeamAssists5, teamFieldGoalsMade = TeamFieldGoalsMade5)]
+
+### 10 Game ####
+
+dat[, TeamAssistPercentage10 := calculate_team_assist_percentage(teamAssists = TeamAssists10, teamFieldGoalsMade = TeamFieldGoalsMade10)]
+
+## Block Percentage ####
+
+### Season ####
+
+dat[, TeamBlockPercentageToDate := calculate_team_block_percentage(
+  teamBlocks = TeamBlocksToDate,
+  opponentFieldGoalAttempt = OpponentFieldGoalsAttemptedToDate,
+  opponentThreePointAttempt = OpponentThreePointersAttemptedToDate
+)]
+
+### 1 Game ####
+
+dat[, TeamBlockPercentage1 := calculate_team_block_percentage(
+  teamBlocks = TeamBlocks1,
+  opponentFieldGoalAttempt = OpponentFieldGoalsAttempted1,
+  opponentThreePointAttempt = OpponentThreePointersAttempted1
+)]
+
+### 3 Game ####
+
+dat[, TeamBlockPercentage3 := calculate_team_block_percentage(
+  teamBlocks = TeamBlocks3,
+  opponentFieldGoalAttempt = OpponentFieldGoalsAttempted3,
+  opponentThreePointAttempt = OpponentThreePointersAttempted3
+)]
+
+### 5 Game ####
+
+dat[, TeamBlockPercentage5 := calculate_team_block_percentage(
+  teamBlocks = TeamBlocks5,
+  opponentFieldGoalAttempt = OpponentFieldGoalsAttempted5,
+  opponentThreePointAttempt = OpponentThreePointersAttempted5
+)]
+
+### 10 Game ####
+
+dat[, TeamBlockPercentage10 := calculate_team_block_percentage(
+  teamBlocks = TeamBlocks10,
+  opponentFieldGoalAttempt = OpponentFieldGoalsAttempted10,
+  opponentThreePointAttempt = OpponentThreePointersAttempted10
+)]
+
+## Defensive Rebound Percentage ####
+
+### Season ####
+
+dat[, TeamDefensiveReboundPercentageToDate := calculate_team_defensive_rebound_percentage(teamDefensiveRebounds = TeamDefensiveReboundsToDate,
+                                                                                          opponentOffensiveRebounds = OpponentOffensiveReboundsToDate)]
+
+### 1 Game ####
+
+dat[, TeamDefensiveReboundPercentage1 := calculate_team_defensive_rebound_percentage(teamDefensiveRebounds = TeamDefensiveRebounds1,
+                                                                                          opponentOffensiveRebounds = OpponentOffensiveRebounds1)]
+
+### 3 Game ####
+
+dat[, TeamDefensiveReboundPercentage3 := calculate_team_defensive_rebound_percentage(teamDefensiveRebounds = TeamDefensiveRebounds3,
+                                                                                          opponentOffensiveRebounds = OpponentOffensiveRebounds3)]
+
+### 5 Game ####
+
+dat[, TeamDefensiveReboundPercentage5 := calculate_team_defensive_rebound_percentage(teamDefensiveRebounds = TeamDefensiveRebounds5,
+                                                                                          opponentOffensiveRebounds = OpponentOffensiveRebounds5)]
+
+### 10 Game ####
+
+dat[, TeamDefensiveReboundPercentage10 := calculate_team_defensive_rebound_percentage(teamDefensiveRebounds = TeamDefensiveRebounds10,
+                                                                                          opponentOffensiveRebounds = OpponentOffensiveRebounds10)]
+
+## Offensive Rebound Pct ####
+
+### Season ####
+
+dat[, TeamOffensiveReboundPercentageToDate := calculate_team_offensive_rebound_percentage(teamOffensiveRebounds = TeamOffensiveReboundsToDate,
+                                                                                          opponentDefensiveRebounds = OpponentDefensiveReboundsToDate)]
+### 1 Game ####
+
+dat[, TeamOffensiveReboundPercentage1 := calculate_team_offensive_rebound_percentage(teamOffensiveRebounds = TeamOffensiveRebounds1,
+                                                                                          opponentDefensiveRebounds = OpponentDefensiveRebounds1)]
+
+### 3 Game ####
+
+dat[, TeamOffensiveReboundPercentage3 := calculate_team_offensive_rebound_percentage(teamOffensiveRebounds = TeamOffensiveRebounds3,
+                                                                                          opponentDefensiveRebounds = OpponentDefensiveRebounds3)]
+
+### 5 Game ####
+
+dat[, TeamOffensiveReboundPercentage5 := calculate_team_offensive_rebound_percentage(teamOffensiveRebounds = TeamOffensiveRebounds5,
+                                                                                          opponentDefensiveRebounds = OpponentDefensiveRebounds5)]
+
+### 10 Game ####
+
+dat[, TeamOffensiveReboundPercentage10 := calculate_team_offensive_rebound_percentage(teamOffensiveRebounds = TeamOffensiveRebounds10,
+                                                                                          opponentDefensiveRebounds = OpponentDefensiveRebounds10)]
+
+## Total Rebound Pct ####
+
+### Season ####
+
+dat[, TeamTotalReboundPercentageToDate := calculate_team_total_rebound_percentage(teamTotalRebounds = TeamTotalReboundsToDate,
+                                                                                  opponentTotalRebounds = OpponentTotalReboundsToDate)]
+
+### 1 Game ####
+
+dat[, TeamTotalReboundPercentage1 := calculate_team_total_rebound_percentage(teamTotalRebounds = TeamTotalRebounds1,
+                                                                                  opponentTotalRebounds = OpponentTotalRebounds1)]
+
+### 3 Game ####
+
+dat[, TeamTotalReboundPercentage3 := calculate_team_total_rebound_percentage(teamTotalRebounds = TeamTotalRebounds3,
+                                                                                  opponentTotalRebounds = OpponentTotalRebounds3)]
+
+### 5 Game ####
+
+dat[, TeamTotalReboundPercentage5 := calculate_team_total_rebound_percentage(teamTotalRebounds = TeamTotalRebounds5,
+                                                                                  opponentTotalRebounds = OpponentTotalRebounds5)]
+
+### 10 Game ####
+
+dat[, TeamTotalReboundPercentage10 := calculate_team_total_rebound_percentage(teamTotalRebounds = TeamTotalRebounds10,
+                                                                                  opponentTotalRebounds = OpponentTotalRebounds10)]
+
+## Steal Pct ####
+
+### Season ####
+
+dat[, TeamStealPercentageToDate := calculate_team_steal_percentage(steals = TeamStealsToDate, opponentPossessions = PossessionsToDate)]
+
+### 1 Game ####
+
+dat[, TeamStealPercentage1 := calculate_team_steal_percentage(steals = TeamSteals1, opponentPossessions = Possessions1)]
+
+### 3 Game ####
+
+dat[, TeamStealPercentage3 := calculate_team_steal_percentage(steals = TeamSteals3, opponentPossessions = Possessions3)]
+
+### 5 Game ####
+
+dat[, TeamStealPercentage5 := calculate_team_steal_percentage(steals = TeamSteals5, opponentPossessions = Possessions5)]
+
+### 10 Game ####
+
+dat[, TeamStealPercentage10 := calculate_team_steal_percentage(steals = TeamSteals10, opponentPossessions = Possessions10)]
+
+## Turnover Pct ####
+
+### Season ####
+
+dat[, TeamTurnoverPercentageToDate := calculate_team_turnover_percentage(
+  teamTurnovers = TeamTurnoversToDate,
+  teamFieldGoalAttempts = TeamFieldGoalsAttemptedToDate,
+  teamFreeThrowAttempts = TeamFreeThrowsAttemptedToDate
+)]
+
+### 1 Game ####
+
+dat[, TeamTurnoverPercentage1 := calculate_team_turnover_percentage(
+  teamTurnovers = TeamTurnovers1,
+  teamFieldGoalAttempts = TeamFieldGoalsAttempted1,
+  teamFreeThrowAttempts = TeamFreeThrowsAttempted1
+)]
+
+### 3 Game ####
+
+dat[, TeamTurnoverPercentage3 := calculate_team_turnover_percentage(
+  teamTurnovers = TeamTurnovers3,
+  teamFieldGoalAttempts = TeamFieldGoalsAttempted3,
+  teamFreeThrowAttempts = TeamFreeThrowsAttempted3
+)]
+
+### 5 Game ####
+
+dat[, TeamTurnoverPercentage5 := calculate_team_turnover_percentage(
+  teamTurnovers = TeamTurnovers5,
+  teamFieldGoalAttempts = TeamFieldGoalsAttempted5,
+  teamFreeThrowAttempts = TeamFreeThrowsAttempted5
+)]
+
+### 10 Game ####
+
+dat[, TeamTurnoverPercentage10 := calculate_team_turnover_percentage(
+  teamTurnovers = TeamTurnovers10,
+  teamFieldGoalAttempts = TeamFieldGoalsAttempted10,
+  teamFreeThrowAttempts = TeamFreeThrowsAttempted10
+)]
+
+## Offensive Efficiency ####
+
+### Season ####
+
+dat[, TeamOffensiveEfficiencyToDate := calculate_offensive_efficiency(teamPoints = TeamPointsToDate, possessions = PossessionsToDate)]
+
+### 1 Game ####
+
+dat[, TeamOffensiveEfficiency1 := calculate_offensive_efficiency(teamPoints = TeamPoints1, possessions = Possessions1)]
+
+### 3 Game ####
+
+dat[, TeamOffensiveEfficiency3 := calculate_offensive_efficiency(teamPoints = TeamPoints3, possessions = Possessions3)]
+
+### 5 Game ####
+
+dat[, TeamOffensiveEfficiency5 := calculate_offensive_efficiency(teamPoints = TeamPoints5, possessions = Possessions5)]
+
+### 10 Game ####
+
+dat[, TeamOffensiveEfficiency10 := calculate_offensive_efficiency(teamPoints = TeamPoints10, possessions = Possessions10)]
+
+# Opponent Advanced Stats ####
+
+## Offensive Efficiency ####
+
+### Season ####
+
+dat[, OpponentDefensiveEfficiencyToDate := calculate_offensive_efficiency(teamPoints = OpponentPointsToDate, possessions = PossessionsToDate)]
+
+### 1 Game ####
+
+dat[, OpponentDefensiveEfficiency1 := calculate_offensive_efficiency(teamPoints = OpponentPoints1, possessions = Possessions1)]
+
+### 3 Game ####
+
+dat[, OpponentDefensiveEfficiency3 := calculate_offensive_efficiency(teamPoints = OpponentPoints3, possessions = Possessions3)]
+
+### 5 Game ####
+
+dat[, OpponentDefensiveEfficiency5 := calculate_offensive_efficiency(teamPoints = OpponentPoints5, possessions = Possessions5)]
+
+### 10 Game ####
+
+dat[, OpponentDefensiveEfficiency10 := calculate_offensive_efficiency(teamPoints = OpponentPoints10, possessions = Possessions10)]
+
+## Turnover Pct ####
+
+### Season ####
+
+dat[, OpponentTurnoverPercentageToDate := calculate_team_turnover_percentage(
+  teamTurnovers = OpponentTurnoversToDate,
+  teamFieldGoalAttempts = OpponentFieldGoalsAttemptedToDate,
+  teamFreeThrowAttempts = OpponentFreeThrowsAttemptedToDate
+)]
+
+### 1 Game ####
+
+dat[, OpponentTurnoverPercentage1 := calculate_team_turnover_percentage(
+  teamTurnovers = OpponentTurnovers1,
+  teamFieldGoalAttempts = OpponentFieldGoalsAttempted1,
+  teamFreeThrowAttempts = OpponentFreeThrowsAttempted1
+)]
+
+### 3 Game ####
+
+dat[, OpponentTurnoverPercentage3 := calculate_team_turnover_percentage(
+  teamTurnovers = OpponentTurnovers3,
+  teamFieldGoalAttempts = OpponentFieldGoalsAttempted3,
+  teamFreeThrowAttempts = OpponentFreeThrowsAttempted3
+)]
+
+### 5 Game ####
+
+dat[, OpponentTurnoverPercentage5 := calculate_team_turnover_percentage(
+  teamTurnovers = OpponentTurnovers5,
+  teamFieldGoalAttempts = OpponentFieldGoalsAttempted5,
+  teamFreeThrowAttempts = OpponentFreeThrowsAttempted5
+)]
+
+### 10 Game ####
+
+dat[, OpponentTurnoverPercentage10 := calculate_team_turnover_percentage(
+  teamTurnovers = OpponentTurnovers10,
+  teamFieldGoalAttempts = OpponentFieldGoalsAttempted10,
+  teamFreeThrowAttempts = OpponentFreeThrowsAttempted10
+)]
+
+## Assist Percentage ####
+
+### Season ####
+
+dat[, OpponentAssistPercentageToDate := calculate_team_assist_percentage(teamAssists = OpponentAssistsToDate, teamFieldGoalsMade = OpponentFieldGoalsMadeToDate)]
+
+### 1 Game ####
+
+dat[, OpponentAssistPercentage1 := calculate_team_assist_percentage(teamAssists = OpponentAssists1, teamFieldGoalsMade = OpponentFieldGoalsMade1)]
+
+### 3 Game ####
+
+dat[, OpponentAssistPercentage3 := calculate_team_assist_percentage(teamAssists = OpponentAssists3, teamFieldGoalsMade = OpponentFieldGoalsMade3)]
+
+### 5 Game ####
+
+dat[, OpponentAssistPercentage5 := calculate_team_assist_percentage(teamAssists = OpponentAssists5, teamFieldGoalsMade = OpponentFieldGoalsMade5)]
+
+### 10 Game ####
+
+dat[, OpponentAssistPercentage10 := calculate_team_assist_percentage(teamAssists = OpponentAssists10, teamFieldGoalsMade = OpponentFieldGoalsMade10)]
+
+## Block Percentage ####
+
+### Season ####
+
+dat[, OpponentBlockPercentageToDate := calculate_team_block_percentage(
+  teamBlocks = OpponentBlocksToDate,
+  opponentFieldGoalAttempt = TeamFieldGoalsAttemptedToDate,
+  opponentThreePointAttempt = TeamThreePointersAttemptedToDate
+)]
+
+### 1 Game ####
+
+dat[, OpponentBlockPercentage1 := calculate_team_block_percentage(
+  teamBlocks = OpponentBlocks1,
+  opponentFieldGoalAttempt = TeamFieldGoalsAttempted1,
+  opponentThreePointAttempt = TeamThreePointersAttempted1
+)]
+
+### 3 Game ####
+
+dat[, OpponentBlockPercentage3 := calculate_team_block_percentage(
+  teamBlocks = OpponentBlocks3,
+  opponentFieldGoalAttempt = TeamFieldGoalsAttempted3,
+  opponentThreePointAttempt = TeamThreePointersAttempted3
+)]
+
+### 5 Game ####
+
+dat[, OpponentBlockPercentage5 := calculate_team_block_percentage(
+  teamBlocks = OpponentBlocks5,
+  opponentFieldGoalAttempt = TeamFieldGoalsAttempted5,
+  opponentThreePointAttempt = TeamThreePointersAttempted5
+)]
+
+### 10 Game ####
+
+dat[, OpponentBlockPercentage10 := calculate_team_block_percentage(
+  teamBlocks = OpponentBlocks10,
+  opponentFieldGoalAttempt = TeamFieldGoalsAttempted10,
+  opponentThreePointAttempt = TeamThreePointersAttempted10
+)]
+
+## Defensive Rebound Percentage ####
+
+### Season ####
+
+dat[, OpponentDefensiveReboundPercentageToDate := calculate_team_defensive_rebound_percentage(teamDefensiveRebounds = OpponentDefensiveReboundsToDate,
+                                                                                          opponentOffensiveRebounds = TeamOffensiveReboundsToDate)]
+
+### 1 Game ####
+
+dat[, OpponentDefensiveReboundPercentage1 := calculate_team_defensive_rebound_percentage(teamDefensiveRebounds = OpponentDefensiveRebounds1,
+                                                                                     opponentOffensiveRebounds = TeamOffensiveRebounds1)]
+
+### 3 Game ####
+
+dat[, OpponentDefensiveReboundPercentage3 := calculate_team_defensive_rebound_percentage(teamDefensiveRebounds = OpponentDefensiveRebounds3,
+                                                                                     opponentOffensiveRebounds = TeamOffensiveRebounds3)]
+
+### 5 Game ####
+
+dat[, OpponentDefensiveReboundPercentage5 := calculate_team_defensive_rebound_percentage(teamDefensiveRebounds = OpponentDefensiveRebounds5,
+                                                                                     opponentOffensiveRebounds = TeamOffensiveRebounds5)]
+
+### 10 Game ####
+
+dat[, OpponentDefensiveReboundPercentage10 := calculate_team_defensive_rebound_percentage(teamDefensiveRebounds = OpponentDefensiveRebounds10,
+                                                                                      opponentOffensiveRebounds = TeamOffensiveRebounds10)]
+
+## Offensive Rebound Pct ####
+
+### Season ####
+
+dat[, OpponentOffensiveReboundPercentageToDate := calculate_team_offensive_rebound_percentage(teamOffensiveRebounds = OpponentOffensiveReboundsToDate,
+                                                                                          opponentDefensiveRebounds = TeamDefensiveReboundsToDate)]
+### 1 Game ####
+
+dat[, OpponentOffensiveReboundPercentage1 := calculate_team_offensive_rebound_percentage(teamOffensiveRebounds = OpponentOffensiveRebounds1,
+                                                                                     opponentDefensiveRebounds = TeamDefensiveRebounds1)]
+
+### 3 Game ####
+
+dat[, OpponentOffensiveReboundPercentage3 := calculate_team_offensive_rebound_percentage(teamOffensiveRebounds = OpponentOffensiveRebounds3,
+                                                                                     opponentDefensiveRebounds = TeamDefensiveRebounds3)]
+
+### 5 Game ####
+
+dat[, OpponentOffensiveReboundPercentage5 := calculate_team_offensive_rebound_percentage(teamOffensiveRebounds = OpponentOffensiveRebounds5,
+                                                                                     opponentDefensiveRebounds = TeamDefensiveRebounds5)]
+
+### 10 Game ####
+
+dat[, OpponentOffensiveReboundPercentage10 := calculate_team_offensive_rebound_percentage(teamOffensiveRebounds = OpponentOffensiveRebounds10,
+                                                                                      opponentDefensiveRebounds = TeamDefensiveRebounds10)]
+
+## Total Rebound Pct ####
+
+### Season ####
+
+dat[, OpponentTotalReboundPercentageToDate := calculate_team_total_rebound_percentage(teamTotalRebounds = OpponentTotalReboundsToDate,
+                                                                                  opponentTotalRebounds = TeamTotalReboundsToDate)]
+
+### 1 Game ####
+
+dat[, OpponentTotalReboundPercentage1 := calculate_team_total_rebound_percentage(teamTotalRebounds = OpponentTotalRebounds1,
+                                                                             opponentTotalRebounds = TeamTotalRebounds1)]
+
+### 3 Game ####
+
+dat[, OpponentTotalReboundPercentage3 := calculate_team_total_rebound_percentage(teamTotalRebounds = OpponentTotalRebounds3,
+                                                                             opponentTotalRebounds = TeamTotalRebounds3)]
+
+### 5 Game ####
+
+dat[, OpponentTotalReboundPercentage5 := calculate_team_total_rebound_percentage(teamTotalRebounds = OpponentTotalRebounds5,
+                                                                             opponentTotalRebounds = TeamTotalRebounds5)]
+
+### 10 Game ####
+
+dat[, OpponentTotalReboundPercentage10 := calculate_team_total_rebound_percentage(teamTotalRebounds = OpponentTotalRebounds10,
+                                                                              opponentTotalRebounds = TeamTotalRebounds10)]
+
+## Steal Pct ####
+
+### Season ####
+
+dat[, OpponentStealPercentageToDate := calculate_team_steal_percentage(steals = OpponentStealsToDate, opponentPossessions = PossessionsToDate)]
+
+### 1 Game ####
+
+dat[, OpponentStealPercentage1 := calculate_team_steal_percentage(steals = OpponentSteals1, opponentPossessions = Possessions1)]
+
+### 3 Game ####
+
+dat[, OpponentStealPercentage3 := calculate_team_steal_percentage(steals = OpponentSteals3, opponentPossessions = Possessions3)]
+
+### 5 Game ####
+
+dat[, OpponentStealPercentage5 := calculate_team_steal_percentage(steals = OpponentSteals5, opponentPossessions = Possessions5)]
+
+### 10 Game ####
+
+dat[, OpponentStealPercentage10 := calculate_team_steal_percentage(steals = OpponentSteals10, opponentPossessions = Possessions10)]
+
+
+# Model Fitting ####
+
+Outcome <- "Points"
+
+fieldsToIgnore <- setdiff(columnToSum, Outcome)
+
+cutOffDate <- dat[, max(GameDate)] - dweeks()
+
+trainDat <- dat[GameDate <= cutOffDate] %>% 
+              .[, (fieldsToIgnore) := NULL]
+
+testDat <- dat[GameDate > cutOffDate] %>% 
+              .[, (fieldsToIgnore) := NULL]
+
+pointModel <-
+  nnet::nnet(
+    formula = log(Points + 1) ~ .,
+    data = trainDat,
+    MaxNWts = 1e7,
+    size = 20,
+    skip = TRUE, 
+    linout = TRUE, 
+    maxit = 1000
+  )
+
+trainDat[, PredictedPoints := exp(predict(pointModel, newdata = .SD)) - 1]
+trainDat[, Residual := Points - PredictedPoints]
+testDat[, PredictedPoints := exp(predict(pointModel, newdata = .SD)) - 1]
+testDat[, Residual := Points - PredictedPoints]
+
+ggplot(data = trainDat, mapping = aes(x = Points, y = PredictedPoints)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, color = "red", size = 2)
+
+ggplot(data = trainDat, mapping = aes(x = Points, y = Residual)) +
+  geom_point()
+
+shap <-
+  kernelshap(pointModel, X = trainDat[,-"Points"], bg_X = trainDat[sample(1:nrow(trainDat), size = 200, replace = FALSE)])
+sv <- shapviz(shap)
+
+sv_importance(sv)
+sv_importance(sv, kind = "bee")
+sv_dependence(sv, "Species", color_var = "auto")
+
+# Single observations
+sv_waterfall(sv, 1)
+sv_force(sv, 1)
