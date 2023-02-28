@@ -2,8 +2,7 @@ library(tidyverse)
 library(tidymodels)
 library(data.table)
 library(lubridate)
-library(shapviz)
-library(kernelshap)
+library(h2o)
 
 source("HelperFunctions.R")
 dat <- readRDS(file = "BoxscoreData20230210.RDS") %>% data.table()
@@ -1921,8 +1920,21 @@ dat[, OpponentStealPercentage5 := calculate_team_steal_percentage(steals = Oppon
 
 dat[, OpponentStealPercentage10 := calculate_team_steal_percentage(steals = OpponentSteals10, opponentPossessions = Possessions10)]
 
+# Simple Features ####
+
+dat[, RestDays := calculate_days_rest(GameDate),
+    .(Player)]
+
+dat[, IsBackToBack := fifelse(RestDays == 1, "Y", "N") %>% as.factor()]
+
+# Handle NAs ####
+
+NaCols <- dat[, lapply(.SD, function(x) any(is.na(x)) & is.numeric(x)) %>% unlist %>% which %>% names]
+
+setnafill(x = dat, type = "const", fill = 0, cols = NaCols)
 
 # Model Fitting ####
+h2o.init(max_mem_size = "12G")
 
 Outcome <- "Points"
 
@@ -1933,40 +1945,46 @@ cutOffDate <- dat[, max(GameDate)] - dweeks()
 trainDat <- dat[GameDate <= cutOffDate] %>% 
               .[, (fieldsToIgnore) := NULL]
 
+splitDays <- trainDat[,(max(GameDate) - min(GameDate)) %>% 
+                        as.integer() %>% 
+                        seq(1, .) %>% 
+                        quantile(probs = seq(0.2, 0.8, 0.2)) %>% 
+                        round()]
+
+splitDates <- trainDat[, min(GameDate) + ddays(splitDays)]
+
+trainDat[, cvIndex := fcase(GameDate < splitDates[1], 1,
+                            GameDate < splitDates[2], 2,
+                            GameDate < splitDates[3], 3,
+                            GameDate < splitDates[4], 4,
+                            GameDate >= splitDates[4], 5)]
+
+trainH2O <- h2o::as.h2o(x = trainDat)
+
 testDat <- dat[GameDate > cutOffDate] %>% 
               .[, (fieldsToIgnore) := NULL]
+testH2O <- h2o::as.h2o(x = testDat)
 
-pointModel <-
-  nnet::nnet(
-    formula = log(Points + 1) ~ .,
-    data = trainDat,
-    MaxNWts = 1e7,
-    size = 20,
-    skip = TRUE, 
-    linout = TRUE, 
-    maxit = 1000
+predictors <- setdiff(names(trainH2O), c(Outcome, "cvIndex"))
+
+aml <-
+  h2o.automl(
+    x = predictors,
+    y = Outcome,
+    training_frame = trainH2O,
+    leaderboard_frame = testH2O,
+    fold_column = "cvIndex",
+    max_runtime_secs = 4 * 60 * 60,
+    max_models = 20,
+    seed = 1234
   )
 
-trainDat[, PredictedPoints := exp(predict(pointModel, newdata = .SD)) - 1]
-trainDat[, Residual := Points - PredictedPoints]
-testDat[, PredictedPoints := exp(predict(pointModel, newdata = .SD)) - 1]
-testDat[, Residual := Points - PredictedPoints]
+lb <- aml@leaderboard
 
-ggplot(data = trainDat, mapping = aes(x = Points, y = PredictedPoints)) +
-  geom_point() +
-  geom_abline(slope = 1, intercept = 0, color = "red", size = 2)
+print(lb, n = nrow(lb))
 
-ggplot(data = trainDat, mapping = aes(x = Points, y = Residual)) +
-  geom_point()
+pred <- h2o.predict(aml, testH2O)
 
-shap <-
-  kernelshap(pointModel, X = trainDat[,-"Points"], bg_X = trainDat[sample(1:nrow(trainDat), size = 200, replace = FALSE)])
-sv <- shapviz(shap)
+model <- h2o.get_best_model(aml)
 
-sv_importance(sv)
-sv_importance(sv, kind = "bee")
-sv_dependence(sv, "Species", color_var = "auto")
-
-# Single observations
-sv_waterfall(sv, 1)
-sv_force(sv, 1)
+h2o.explain(model, newdata = testH2O)

@@ -1,6 +1,15 @@
 calculate_recency_stats <- function(column, gamesToSum) {
   result <-
-    frollsum(column, n = gamesToSum, align = "right") %>%  shift(n = 1, type = "lag")
+    frollsum(column, n = gamesToSum, align = "right") %>%  shift(n = 1, type = "lag", fill = 0)
+}
+
+calculate_days_rest <- function(dateColumn){
+  
+  gameDates <- data.table(GameDt = dateColumn)
+  gameDates[, PrevGameDt := shift(x = GameDt,n = 1, type = "lag")]
+  
+  result <- gameDates[,fifelse(is.na(PrevGameDt),make_difftime(day = 30),GameDt - PrevGameDt) %>% as.integer()]
+  
 }
 
 calculate_assist_percentage <-
