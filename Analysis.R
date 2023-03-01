@@ -3,10 +3,18 @@ library(tidymodels)
 library(data.table)
 library(lubridate)
 library(h2o)
+library(xgboost)
+library(kernelshap)
+library(shapviz)
 
 source("HelperFunctions.R")
 dat <- readRDS(file = "BoxscoreData20230210.RDS") %>% data.table()
+dat[, Season := 2023]
 
+oldDat <- readRDS(file = "BoxscoreData2021-2022.RDS") %>% data.table()
+oldDat[, Season := 2022]
+
+dat <- rbind(dat, oldDat)
 dat <- dat[MP != "Did Not Play"]
 
 timeFields <- "MP"
@@ -44,7 +52,8 @@ numericFields <- c('FG',
                    'USG%',
                    'ORtg',
                    'DRtg',
-                   'BPM')
+                   'BPM',
+                   "Season")
 
 factorFields <- names(dat) %>% setdiff(c(timeFields, dateFields, numericFields))
 
@@ -197,27 +206,27 @@ setorder(dat, Team, Player, GameDate)
 dat[, 
     paste0(columnToSum, 1) := lapply(.SD, function(x) calculate_recency_stats(column = x, gamesToSum = 1)), 
     .SDcols = columnToSum,
-    .(Player)]
+    .(Player, Season)]
 dat[, 
     paste0(columnToSum, 3) := lapply(.SD, function(x) calculate_recency_stats(column = x, gamesToSum = 3)), 
     .SDcols = columnToSum,
-    .(Player)]
+    .(Player, Season)]
 dat[, 
     paste0(columnToSum, 5) := lapply(.SD, function(x) calculate_recency_stats(column = x, gamesToSum = 5)), 
     .SDcols = columnToSum,
-    .(Player)]
+    .(Player, Season)]
 dat[, 
     paste0(columnToSum, 10) := lapply(.SD, function(x) calculate_recency_stats(column = x, gamesToSum = 10)), 
     .SDcols = columnToSum,
-    .(Player)]
+    .(Player, Season)]
 dat[,
     paste0(columnToSum, "ToDate") := lapply(.SD, function(x)
       cumsum(x) %>% shift(n = 1, type = "lag")),
     .SDcols = columnToSum,
-    .(Player)]
+    .(Player, Season)]
 
 # Team Recency Stats ####
-teamDat <- dat[, lapply(.SD, sum), .SDcols = columnToSum, .(Team, GameDate)]
+teamDat <- dat[, lapply(.SD, sum), .SDcols = columnToSum, .(Team, GameDate, Season)]
 
 setorder(teamDat, Team, GameDate)
 
@@ -225,32 +234,32 @@ teamDat[,
         paste0("Team", columnToSum, 1) := lapply(.SD, function(x)
           calculate_recency_stats(column = x, gamesToSum = 1)),
         .SDcols = columnToSum,
-        .(Team)]
+        .(Team, Season)]
 teamDat[,
         paste0("Team", columnToSum, 3) := lapply(.SD, function(x)
           calculate_recency_stats(column = x, gamesToSum = 3)),
         .SDcols = columnToSum,
-        .(Team)]
+        .(Team, Season)]
 teamDat[,
         paste0("Team", columnToSum, 5) := lapply(.SD, function(x)
           calculate_recency_stats(column = x, gamesToSum = 5)),
         .SDcols = columnToSum,
-        .(Team)]
+        .(Team, Season)]
 teamDat[,
         paste0("Team", columnToSum, 10) := lapply(.SD, function(x)
           calculate_recency_stats(column = x, gamesToSum = 10)),
         .SDcols = columnToSum,
-        .(Team)]
+        .(Team, Season)]
 teamDat[,
         paste0("Team", columnToSum, "ToDate") := lapply(.SD, function(x)
           cumsum(x) %>% shift(n = 1, type = "lag")),
         .SDcols = columnToSum,
-        .(Team)]
+        .(Team, Season)]
 
 teamDat[,(columnToSum) := NULL]
 
 # Opponent Recency Stats ####
-opponentDat <- dat[, lapply(.SD, sum), .SDcols = columnToSum, .(Opponent, GameDate)]
+opponentDat <- dat[, lapply(.SD, sum), .SDcols = columnToSum, .(Opponent, GameDate, Season)]
 
 setorder(opponentDat, Opponent, GameDate)
 
@@ -258,35 +267,35 @@ opponentDat[,
         paste0("Opponent", columnToSum, 1) := lapply(.SD, function(x)
           calculate_recency_stats(column = x, gamesToSum = 1)),
         .SDcols = columnToSum,
-        .(Opponent)]
+        .(Opponent, Season)]
 opponentDat[,
         paste0("Opponent", columnToSum, 3) := lapply(.SD, function(x)
           calculate_recency_stats(column = x, gamesToSum = 3)),
         .SDcols = columnToSum,
-        .(Opponent)]
+        .(Opponent, Season)]
 opponentDat[,
         paste0("Opponent", columnToSum, 5) := lapply(.SD, function(x)
           calculate_recency_stats(column = x, gamesToSum = 5)),
         .SDcols = columnToSum,
-        .(Opponent)]
+        .(Opponent, Season)]
 opponentDat[,
         paste0("Opponent", columnToSum, 10) := lapply(.SD, function(x)
           calculate_recency_stats(column = x, gamesToSum = 10)),
         .SDcols = columnToSum,
-        .(Opponent)]
+        .(Opponent, Season)]
 opponentDat[,
         paste0("Opponent", columnToSum, "ToDate") := lapply(.SD, function(x)
           cumsum(x) %>% shift(n = 1, type = "lag")),
         .SDcols = columnToSum,
-        .(Opponent)]
+        .(Opponent, Season)]
 
 opponentDat[,(columnToSum) := NULL]
 
 # Merge Datasets ####
 dat <- dat[teamDat,
-           on = .(Team, GameDate)] %>%
+           on = .(Team, GameDate, Season)] %>%
   .[opponentDat,
-    on = .(Opponent, GameDate)]
+    on = .(Opponent, GameDate, Season)]
 
 rm(opponentDat, teamDat)
 
@@ -311,7 +320,7 @@ dat[,
 
 dat[,
     TeamMinuteWeightedAveragePosition := sum(MinutesPlayedToDate * UnadjustedPositionToDate)/ sum(MinutesPlayedToDate),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[, PositionToDate := calculate_position(unadjustedPosition = UnadjustedPositionToDate,
                                            teamMinuteWeightedAveragePosition = TeamMinuteWeightedAveragePosition)]
@@ -333,7 +342,7 @@ dat[,
 
 dat[,
     TeamMinuteWeightedAveragePosition := sum(MinutesPlayed1 * UnadjustedPosition1)/ sum(MinutesPlayed1),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[, Position1 := calculate_position(unadjustedPosition = UnadjustedPosition1,
                                            teamMinuteWeightedAveragePosition = TeamMinuteWeightedAveragePosition)]
@@ -355,7 +364,7 @@ dat[,
 
 dat[,
     TeamMinuteWeightedAveragePosition := sum(MinutesPlayed3 * UnadjustedPosition3)/ sum(MinutesPlayed3),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[, Position3 := calculate_position(unadjustedPosition = UnadjustedPosition3,
                                            teamMinuteWeightedAveragePosition = TeamMinuteWeightedAveragePosition)]
@@ -377,7 +386,7 @@ dat[,
 
 dat[,
     TeamMinuteWeightedAveragePosition := sum(MinutesPlayed5 * UnadjustedPosition5)/ sum(MinutesPlayed5),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[, Position5 := calculate_position(unadjustedPosition = UnadjustedPosition5,
                                            teamMinuteWeightedAveragePosition = TeamMinuteWeightedAveragePosition)]
@@ -399,7 +408,7 @@ dat[,
 
 dat[,
     TeamMinuteWeightedAveragePosition := sum(MinutesPlayed10 * UnadjustedPosition10)/ sum(MinutesPlayed10),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[, Position10 := calculate_position(unadjustedPosition = UnadjustedPosition10,
                                            teamMinuteWeightedAveragePosition = TeamMinuteWeightedAveragePosition)]
@@ -419,7 +428,7 @@ dat[,
 
 dat[,
     TeamThresholdPointToDate := sum(ThresholdPointToDate),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[,
     UnadjustedOffensiveRoleToDate := calculate_unadjusted_offensive_role(
@@ -431,7 +440,7 @@ dat[,
 
 dat[,
     TeamMinuteWeightedAverageOffensiveRole := sum(MinutesPlayedToDate * UnadjustedOffensiveRoleToDate) / sum(MinutesPlayedToDate),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[,
     OffensiveRoleToDate := calculate_offensive_role(
@@ -452,7 +461,7 @@ dat[,
 
 dat[,
     TeamThresholdPoint1 := sum(ThresholdPoint1),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[,
     UnadjustedOffensiveRole1 := calculate_unadjusted_offensive_role(
@@ -464,7 +473,7 @@ dat[,
 
 dat[,
     TeamMinuteWeightedAverageOffensiveRole := sum(MinutesPlayed1 * UnadjustedOffensiveRole1) / sum(MinutesPlayed1),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[,
     OffensiveRole1 := calculate_offensive_role(
@@ -485,7 +494,7 @@ dat[,
 
 dat[,
     TeamThresholdPoint3 := sum(ThresholdPoint3),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[,
     UnadjustedOffensiveRole3 := calculate_unadjusted_offensive_role(
@@ -497,7 +506,7 @@ dat[,
 
 dat[,
     TeamMinuteWeightedAverageOffensiveRole := sum(MinutesPlayed3 * UnadjustedOffensiveRole3) / sum(MinutesPlayed3),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[,
     OffensiveRole3 := calculate_offensive_role(
@@ -518,7 +527,7 @@ dat[,
 
 dat[,
     TeamThresholdPoint5 := sum(ThresholdPoint5),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[,
     UnadjustedOffensiveRole5 := calculate_unadjusted_offensive_role(
@@ -530,7 +539,7 @@ dat[,
 
 dat[,
     TeamMinuteWeightedAverageOffensiveRole := sum(MinutesPlayed5 * UnadjustedOffensiveRole5) / sum(MinutesPlayed5),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[,
     OffensiveRole5 := calculate_offensive_role(
@@ -551,7 +560,7 @@ dat[,
 
 dat[,
     TeamThresholdPoint10 := sum(ThresholdPoint10),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[,
     UnadjustedOffensiveRole10 := calculate_unadjusted_offensive_role(
@@ -563,7 +572,7 @@ dat[,
 
 dat[,
     TeamMinuteWeightedAverageOffensiveRole := sum(MinutesPlayed10 * UnadjustedOffensiveRole10) / sum(MinutesPlayed10),
-    .(Team, GameDate)]
+    .(Team, GameDate, Season)]
 
 dat[,
     OffensiveRole10 := calculate_offensive_role(
@@ -630,11 +639,11 @@ dat[,
       opponentPersonalFouls = OpponentPersonalFouls10
     )]
 
-# Possesions ####
+# Possessions ####
 
 ## Season ####
 dat[,
-    TeamPossesionsToDate := calculate_possessions(
+    TeamPossessionsToDate := calculate_possessions(
       teamFieldGoalsMade = TeamFieldGoalsMadeToDate,
       teamFieldGoalAttempts = TeamFieldGoalsAttemptedToDate,
       teamFreeThrowAttempts = TeamFreeThrowsAttemptedToDate,
@@ -651,7 +660,7 @@ dat[,
 
 ## 1 Game ####
 dat[,
-    TeamPossesions1 := calculate_possessions(
+    TeamPossessions1 := calculate_possessions(
       teamFieldGoalsMade = TeamFieldGoalsMade1,
       teamFieldGoalAttempts = TeamFieldGoalsAttempted1,
       teamFreeThrowAttempts = TeamFreeThrowsAttempted1,
@@ -668,7 +677,7 @@ dat[,
 
 ## 3 Game ####
 dat[,
-    TeamPossesions3 := calculate_possessions(
+    TeamPossessions3 := calculate_possessions(
       teamFieldGoalsMade = TeamFieldGoalsMade3,
       teamFieldGoalAttempts = TeamFieldGoalsAttempted3,
       teamFreeThrowAttempts = TeamFreeThrowsAttempted3,
@@ -685,7 +694,7 @@ dat[,
 
 ## 5 Game ####
 dat[,
-    TeamPossesions5 := calculate_possessions(
+    TeamPossessions5 := calculate_possessions(
       teamFieldGoalsMade = TeamFieldGoalsMade5,
       teamFieldGoalAttempts = TeamFieldGoalsAttempted5,
       teamFreeThrowAttempts = TeamFreeThrowsAttempted5,
@@ -702,7 +711,7 @@ dat[,
 
 ## 10 Game ####
 dat[,
-    TeamPossesions10 := calculate_possessions(
+    TeamPossessions10 := calculate_possessions(
       teamFieldGoalsMade = TeamFieldGoalsMade10,
       teamFieldGoalAttempts = TeamFieldGoalsAttempted10,
       teamFreeThrowAttempts = TeamFreeThrowsAttempted10,
@@ -721,7 +730,7 @@ dat[,
 
 ## Season ####
 dat[,
-    ScoringPossesionsToDate := calculate_player_scoring_possessions(
+    ScoringPossessionsToDate := calculate_player_scoring_possessions(
       fieldGoalsMade = FieldGoalsMadeToDate,
       assists = AssistsToDate,
       freeThrowsMade = FreeThrowsMadeToDate,
@@ -732,7 +741,7 @@ dat[,
     )]
 
 dat[,
-    NonScoringPossesionsToDate := calculate_player_non_scoring_possessions(
+    NonScoringPossessionsToDate := calculate_player_non_scoring_possessions(
       fieldGoalsMade = FieldGoalsMadeToDate,
       fieldGoalAttempts = FieldGoalsAttemptedToDate,
       freeThrowAttempts = FreeThrowsAttemptedToDate,
@@ -740,12 +749,12 @@ dat[,
     )]
 
 dat[,
-    PossessionsToDate := calculate_player_possessions(scoringPossessions = ScoringPossesionsToDate,
-                                                      nonScoringPossessions = NonScoringPossesionsToDate)]
+    PossessionsToDate := calculate_player_possessions(scoringPossessions = ScoringPossessionsToDate,
+                                                      nonScoringPossessions = NonScoringPossessionsToDate)]
 
 ## 1 Game ####
 dat[,
-    ScoringPossesions1 := calculate_player_scoring_possessions(
+    ScoringPossessions1 := calculate_player_scoring_possessions(
       fieldGoalsMade = FieldGoalsMade1,
       assists = Assists1,
       freeThrowsMade = FreeThrowsMade1,
@@ -756,7 +765,7 @@ dat[,
     )]
 
 dat[,
-    NonScoringPossesions1 := calculate_player_non_scoring_possessions(
+    NonScoringPossessions1 := calculate_player_non_scoring_possessions(
       fieldGoalsMade = FieldGoalsMade1,
       fieldGoalAttempts = FieldGoalsAttempted1,
       freeThrowAttempts = FreeThrowsAttempted1,
@@ -764,12 +773,12 @@ dat[,
     )]
 
 dat[,
-    Possessions1 := calculate_player_possessions(scoringPossessions = ScoringPossesions1,
-                                                      nonScoringPossessions = NonScoringPossesions1)]
+    Possessions1 := calculate_player_possessions(scoringPossessions = ScoringPossessions1,
+                                                      nonScoringPossessions = NonScoringPossessions1)]
 
 ## 3 Game ####
 dat[,
-    ScoringPossesions3 := calculate_player_scoring_possessions(
+    ScoringPossessions3 := calculate_player_scoring_possessions(
       fieldGoalsMade = FieldGoalsMade3,
       assists = Assists3,
       freeThrowsMade = FreeThrowsMade3,
@@ -780,7 +789,7 @@ dat[,
     )]
 
 dat[,
-    NonScoringPossesions3 := calculate_player_non_scoring_possessions(
+    NonScoringPossessions3 := calculate_player_non_scoring_possessions(
       fieldGoalsMade = FieldGoalsMade3,
       fieldGoalAttempts = FieldGoalsAttempted3,
       freeThrowAttempts = FreeThrowsAttempted3,
@@ -788,12 +797,12 @@ dat[,
     )]
 
 dat[,
-    Possessions3 := calculate_player_possessions(scoringPossessions = ScoringPossesions3,
-                                                      nonScoringPossessions = NonScoringPossesions3)]
+    Possessions3 := calculate_player_possessions(scoringPossessions = ScoringPossessions3,
+                                                      nonScoringPossessions = NonScoringPossessions3)]
 
 ## 5 Game ####
 dat[,
-    ScoringPossesions5 := calculate_player_scoring_possessions(
+    ScoringPossessions5 := calculate_player_scoring_possessions(
       fieldGoalsMade = FieldGoalsMade5,
       assists = Assists5,
       freeThrowsMade = FreeThrowsMade5,
@@ -804,7 +813,7 @@ dat[,
     )]
 
 dat[,
-    NonScoringPossesions5 := calculate_player_non_scoring_possessions(
+    NonScoringPossessions5 := calculate_player_non_scoring_possessions(
       fieldGoalsMade = FieldGoalsMade5,
       fieldGoalAttempts = FieldGoalsAttempted5,
       freeThrowAttempts = FreeThrowsAttempted5,
@@ -812,12 +821,12 @@ dat[,
     )]
 
 dat[,
-    Possessions5 := calculate_player_possessions(scoringPossessions = ScoringPossesions5,
-                                                      nonScoringPossessions = NonScoringPossesions5)]
+    Possessions5 := calculate_player_possessions(scoringPossessions = ScoringPossessions5,
+                                                      nonScoringPossessions = NonScoringPossessions5)]
 
 ## 10 Game ####
 dat[,
-    ScoringPossesions10 := calculate_player_scoring_possessions(
+    ScoringPossessions10 := calculate_player_scoring_possessions(
       fieldGoalsMade = FieldGoalsMade10,
       assists = Assists10,
       freeThrowsMade = FreeThrowsMade10,
@@ -828,7 +837,7 @@ dat[,
     )]
 
 dat[,
-    NonScoringPossesions10 := calculate_player_non_scoring_possessions(
+    NonScoringPossessions10 := calculate_player_non_scoring_possessions(
       fieldGoalsMade = FieldGoalsMade10,
       fieldGoalAttempts = FieldGoalsAttempted10,
       freeThrowAttempts = FreeThrowsAttempted10,
@@ -836,8 +845,8 @@ dat[,
     )]
 
 dat[,
-    Possessions10 := calculate_player_possessions(scoringPossessions = ScoringPossesions10,
-                                                  nonScoringPossessions = NonScoringPossesions10)]
+    Possessions10 := calculate_player_possessions(scoringPossessions = ScoringPossessions10,
+                                                  nonScoringPossessions = NonScoringPossessions10)]
 
 # Advance Player Stats ####
 
@@ -1302,7 +1311,7 @@ dat[, ThreePointAttemptRate10 := calculate_three_point_rate(fieldGoalAttempts = 
 
 dat[, StealPercentageToDate := calculate_steal_percentage(
   steals = StealsToDate,
-  opponentPossessions = TeamPossesionsToDate,
+  opponentPossessions = TeamPossessionsToDate,
   mintesPlayed = MinutesPlayedToDate,
   teamMinutesPlayed = TeamMinutesPlayedToDate
 )]
@@ -1311,7 +1320,7 @@ dat[, StealPercentageToDate := calculate_steal_percentage(
 
 dat[, StealPercentage1 := calculate_steal_percentage(
   steals = Steals1,
-  opponentPossessions = TeamPossesions1,
+  opponentPossessions = TeamPossessions1,
   mintesPlayed = MinutesPlayed1,
   teamMinutesPlayed = TeamMinutesPlayed1
 )]
@@ -1320,7 +1329,7 @@ dat[, StealPercentage1 := calculate_steal_percentage(
 
 dat[, StealPercentage3 := calculate_steal_percentage(
   steals = Steals3,
-  opponentPossessions = TeamPossesions3,
+  opponentPossessions = TeamPossessions3,
   mintesPlayed = MinutesPlayed3,
   teamMinutesPlayed = TeamMinutesPlayed3
 )]
@@ -1329,7 +1338,7 @@ dat[, StealPercentage3 := calculate_steal_percentage(
 
 dat[, StealPercentage5 := calculate_steal_percentage(
   steals = Steals5,
-  opponentPossessions = TeamPossesions5,
+  opponentPossessions = TeamPossessions5,
   mintesPlayed = MinutesPlayed5,
   teamMinutesPlayed = TeamMinutesPlayed5
 )]
@@ -1338,7 +1347,7 @@ dat[, StealPercentage5 := calculate_steal_percentage(
 
 dat[, StealPercentage10 := calculate_steal_percentage(
   steals = Steals10,
-  opponentPossessions = TeamPossesions10,
+  opponentPossessions = TeamPossessions10,
   mintesPlayed = MinutesPlayed10,
   teamMinutesPlayed = TeamMinutesPlayed10
 )]
@@ -1606,23 +1615,23 @@ dat[, TeamTotalReboundPercentage10 := calculate_team_total_rebound_percentage(te
 
 ### Season ####
 
-dat[, TeamStealPercentageToDate := calculate_team_steal_percentage(steals = TeamStealsToDate, opponentPossessions = PossessionsToDate)]
+dat[, TeamStealPercentageToDate := calculate_team_steal_percentage(steals = TeamStealsToDate, opponentPossessions = TeamPossessionsToDate)]
 
 ### 1 Game ####
 
-dat[, TeamStealPercentage1 := calculate_team_steal_percentage(steals = TeamSteals1, opponentPossessions = Possessions1)]
+dat[, TeamStealPercentage1 := calculate_team_steal_percentage(steals = TeamSteals1, opponentPossessions = TeamPossessions1)]
 
 ### 3 Game ####
 
-dat[, TeamStealPercentage3 := calculate_team_steal_percentage(steals = TeamSteals3, opponentPossessions = Possessions3)]
+dat[, TeamStealPercentage3 := calculate_team_steal_percentage(steals = TeamSteals3, opponentPossessions = TeamPossessions3)]
 
 ### 5 Game ####
 
-dat[, TeamStealPercentage5 := calculate_team_steal_percentage(steals = TeamSteals5, opponentPossessions = Possessions5)]
+dat[, TeamStealPercentage5 := calculate_team_steal_percentage(steals = TeamSteals5, opponentPossessions = TeamPossessions5)]
 
 ### 10 Game ####
 
-dat[, TeamStealPercentage10 := calculate_team_steal_percentage(steals = TeamSteals10, opponentPossessions = Possessions10)]
+dat[, TeamStealPercentage10 := calculate_team_steal_percentage(steals = TeamSteals10, opponentPossessions = TeamPossessions10)]
 
 ## Turnover Pct ####
 
@@ -1670,47 +1679,47 @@ dat[, TeamTurnoverPercentage10 := calculate_team_turnover_percentage(
 
 ### Season ####
 
-dat[, TeamOffensiveEfficiencyToDate := calculate_offensive_efficiency(teamPoints = TeamPointsToDate, possessions = PossessionsToDate)]
+dat[, TeamOffensiveEfficiencyToDate := calculate_offensive_efficiency(teamPoints = TeamPointsToDate, possessions = TeamPossessionsToDate)]
 
 ### 1 Game ####
 
-dat[, TeamOffensiveEfficiency1 := calculate_offensive_efficiency(teamPoints = TeamPoints1, possessions = Possessions1)]
+dat[, TeamOffensiveEfficiency1 := calculate_offensive_efficiency(teamPoints = TeamPoints1, possessions = TeamPossessions1)]
 
 ### 3 Game ####
 
-dat[, TeamOffensiveEfficiency3 := calculate_offensive_efficiency(teamPoints = TeamPoints3, possessions = Possessions3)]
+dat[, TeamOffensiveEfficiency3 := calculate_offensive_efficiency(teamPoints = TeamPoints3, possessions = TeamPossessions3)]
 
 ### 5 Game ####
 
-dat[, TeamOffensiveEfficiency5 := calculate_offensive_efficiency(teamPoints = TeamPoints5, possessions = Possessions5)]
+dat[, TeamOffensiveEfficiency5 := calculate_offensive_efficiency(teamPoints = TeamPoints5, possessions = TeamPossessions5)]
 
 ### 10 Game ####
 
-dat[, TeamOffensiveEfficiency10 := calculate_offensive_efficiency(teamPoints = TeamPoints10, possessions = Possessions10)]
+dat[, TeamOffensiveEfficiency10 := calculate_offensive_efficiency(teamPoints = TeamPoints10, possessions = TeamPossessions10)]
 
 # Opponent Advanced Stats ####
 
-## Offensive Efficiency ####
+## Defensive Efficiency ####
 
 ### Season ####
 
-dat[, OpponentDefensiveEfficiencyToDate := calculate_offensive_efficiency(teamPoints = OpponentPointsToDate, possessions = PossessionsToDate)]
+dat[, OpponentDefensiveEfficiencyToDate := calculate_offensive_efficiency(teamPoints = OpponentPointsToDate, possessions = TeamPossessionsToDate)]
 
 ### 1 Game ####
 
-dat[, OpponentDefensiveEfficiency1 := calculate_offensive_efficiency(teamPoints = OpponentPoints1, possessions = Possessions1)]
+dat[, OpponentDefensiveEfficiency1 := calculate_offensive_efficiency(teamPoints = OpponentPoints1, possessions = TeamPossessions1)]
 
 ### 3 Game ####
 
-dat[, OpponentDefensiveEfficiency3 := calculate_offensive_efficiency(teamPoints = OpponentPoints3, possessions = Possessions3)]
+dat[, OpponentDefensiveEfficiency3 := calculate_offensive_efficiency(teamPoints = OpponentPoints3, possessions = TeamPossessions3)]
 
 ### 5 Game ####
 
-dat[, OpponentDefensiveEfficiency5 := calculate_offensive_efficiency(teamPoints = OpponentPoints5, possessions = Possessions5)]
+dat[, OpponentDefensiveEfficiency5 := calculate_offensive_efficiency(teamPoints = OpponentPoints5, possessions = TeamPossessions5)]
 
 ### 10 Game ####
 
-dat[, OpponentDefensiveEfficiency10 := calculate_offensive_efficiency(teamPoints = OpponentPoints10, possessions = Possessions10)]
+dat[, OpponentDefensiveEfficiency10 := calculate_offensive_efficiency(teamPoints = OpponentPoints10, possessions = TeamPossessions10)]
 
 ## Turnover Pct ####
 
@@ -1902,30 +1911,38 @@ dat[, OpponentTotalReboundPercentage10 := calculate_team_total_rebound_percentag
 
 ### Season ####
 
-dat[, OpponentStealPercentageToDate := calculate_team_steal_percentage(steals = OpponentStealsToDate, opponentPossessions = PossessionsToDate)]
+dat[, OpponentStealPercentageToDate := calculate_team_steal_percentage(steals = OpponentStealsToDate, opponentPossessions = TeamPossessionsToDate)]
 
 ### 1 Game ####
 
-dat[, OpponentStealPercentage1 := calculate_team_steal_percentage(steals = OpponentSteals1, opponentPossessions = Possessions1)]
+dat[, OpponentStealPercentage1 := calculate_team_steal_percentage(steals = OpponentSteals1, opponentPossessions = TeamPossessions1)]
 
 ### 3 Game ####
 
-dat[, OpponentStealPercentage3 := calculate_team_steal_percentage(steals = OpponentSteals3, opponentPossessions = Possessions3)]
+dat[, OpponentStealPercentage3 := calculate_team_steal_percentage(steals = OpponentSteals3, opponentPossessions = TeamPossessions3)]
 
 ### 5 Game ####
 
-dat[, OpponentStealPercentage5 := calculate_team_steal_percentage(steals = OpponentSteals5, opponentPossessions = Possessions5)]
+dat[, OpponentStealPercentage5 := calculate_team_steal_percentage(steals = OpponentSteals5, opponentPossessions = TeamPossessions5)]
 
 ### 10 Game ####
 
-dat[, OpponentStealPercentage10 := calculate_team_steal_percentage(steals = OpponentSteals10, opponentPossessions = Possessions10)]
+dat[, OpponentStealPercentage10 := calculate_team_steal_percentage(steals = OpponentSteals10, opponentPossessions = TeamPossessions10)]
 
 # Simple Features ####
 
 dat[, RestDays := calculate_days_rest(GameDate),
-    .(Player)]
+    .(Player, Season)]
 
 dat[, IsBackToBack := fifelse(RestDays == 1, "Y", "N") %>% as.factor()]
+
+setorder(dat, Team, Player, GameDate)
+dat[, GamesPlayed := seq_len(.N),
+    .(Player, Season)]
+
+currentSeason <- dat[, max(Season)]
+
+dat[, weights := 1 / (currentSeason - Season + 1)]
 
 # Handle NAs ####
 
@@ -1934,57 +1951,104 @@ NaCols <- dat[, lapply(.SD, function(x) any(is.na(x)) & is.numeric(x)) %>% unlis
 setnafill(x = dat, type = "const", fill = 0, cols = NaCols)
 
 # Model Fitting ####
-h2o.init(max_mem_size = "12G")
+h2o.init(max_mem_size = "12G",nthreads = 7)
 
 Outcome <- "Points"
 
-fieldsToIgnore <- setdiff(columnToSum, Outcome)
+fieldsToIgnore <- setdiff(c(columnToSum, "GamesPlayed"), Outcome)
 
 cutOffDate <- dat[, max(GameDate)] - dweeks()
+
+testDat <- dat[GameDate > cutOffDate] %>% 
+  .[, (fieldsToIgnore) := NULL]
+testH2O <- h2o::as.h2o(x = testDat)
+
+predictors <- setdiff(names(testH2O), c(Outcome, "weights"))
 
 trainDat <- dat[GameDate <= cutOffDate] %>% 
               .[, (fieldsToIgnore) := NULL]
 
-splitDays <- trainDat[,(max(GameDate) - min(GameDate)) %>% 
+splitDays <- trainDat[Season == currentSeason,
+                      (max(GameDate) - min(GameDate)) %>% 
                         as.integer() %>% 
                         seq(1, .) %>% 
                         quantile(probs = seq(0.2, 0.8, 0.2)) %>% 
                         round()]
 
-splitDates <- trainDat[, min(GameDate) + ddays(splitDays)]
+makeValidationSet <- splitDays[1] >= 21
 
-trainDat[, cvIndex := fcase(GameDate < splitDates[1], 1,
-                            GameDate < splitDates[2], 2,
-                            GameDate < splitDates[3], 3,
-                            GameDate < splitDates[4], 4,
-                            GameDate >= splitDates[4], 5)]
+splitDates <- trainDat[Season == currentSeason, min(GameDate) + ddays(splitDays)]
 
-trainH2O <- h2o::as.h2o(x = trainDat)
+if(isTRUE(makeValidationSet)){
+  
+  validationDat <- trainDat[GameDate >= splitDates[4]]
+  
+  trainDat <- trainDat[GameDate < splitDates[4]]
+  trainH2O <- h2o::as.h2o(x = trainDat)
+  
+  validationH2O <- h2o::as.h2o(validationDat)
+  
+  aml <-
+    h2o.automl(
+      x = predictors,
+      y = Outcome,
+      training_frame = trainH2O,
+      validation_frame = validationH2O,
+      leaderboard_frame = testH2O,
+      blending_frame = validationH2O,
+      nfolds = 0,
+      max_runtime_secs = 4 * 60 * 60,
+      max_models = 100,
+      seed = 1234,
+      weights_column = "weights"
+    )
+  
+  pred <- h2o.predict(aml@leader, validationH2O)
+  validationDat[, PredictedPoints := pred %>% as.data.frame() %>% as.vector()]
+  
+  1 - validationDat[,
+                    sum((Points - PredictedPoints) ^ 2)] /
+    validationDat[,
+                  sum((Points - validationDat[, mean(Points)]) ^ 2)]
+}
 
-testDat <- dat[GameDate > cutOffDate] %>% 
-              .[, (fieldsToIgnore) := NULL]
-testH2O <- h2o::as.h2o(x = testDat)
 
-predictors <- setdiff(names(trainH2O), c(Outcome, "cvIndex"))
+if(isFALSE(makeValidationSet)){
+  
+  trainDat[, cvIndex := fcase(GameDate < splitDates[1], 1,
+                              GameDate < splitDates[2], 2,
+                              GameDate < splitDates[3], 3,
+                              GameDate < splitDates[4], 4,
+                              GameDate >= splitDates[4], 5)]
+  trainH2O <- h2o::as.h2o(x = trainDat)
+  
+  aml <-
+    h2o.automl(
+      x = predictors,
+      y = Outcome,
+      training_frame = trainH2O,
+      leaderboard_frame = testH2O,
+      blending_frame = validationH2O,
+      nfolds = 0,
+      max_runtime_secs = 4 * 60 * 60,
+      max_models = 100,
+      seed = 1234,
+      weights_column = "weights",
+      fold_column = "cvIndex"
+    )
+  
+}
 
-aml <-
-  h2o.automl(
-    x = predictors,
-    y = Outcome,
-    training_frame = trainH2O,
-    leaderboard_frame = testH2O,
-    fold_column = "cvIndex",
-    max_runtime_secs = 4 * 60 * 60,
-    max_models = 20,
-    seed = 1234
-  )
 
 lb <- aml@leaderboard
 
 print(lb, n = nrow(lb))
 
-pred <- h2o.predict(aml, testH2O)
+pred <- h2o.predict(aml@leader, testH2O)
+testDat[, PredictedPoints := pred %>% as.data.frame() %>% as.vector()]
 
-model <- h2o.get_best_model(aml)
+pred <- h2o.predict(aml@leader, trainH2O)
+trainDat[, PredictedPoints := pred %>% as.data.frame() %>% as.vector()]
 
-h2o.explain(model, newdata = testH2O)
+1 - testDat[, sum((Points - PredictedPoints)^2)] / testDat[, sum((Points - testDat[,mean(Points)])^2)]
+1 - trainDat[, sum((Points - PredictedPoints)^2)] / trainDat[, sum((Points - trainDat[,mean(Points)])^2)]
