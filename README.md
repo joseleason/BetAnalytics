@@ -5,6 +5,7 @@ BetAnalytics is an in-development Python package for building automated, coheren
 ## Current Status
 - ✅ Repository scaffolding with a documented [design philosophy](docs/design_philosophy.md) that outlines architecture, tooling, and roadmap expectations.
 - ✅ Initial Basketball Reference collector with polite scraping defaults that exports five seasons of games, team, and player tables to versioned parquet datasets.
+- ✅ Sportsbook Review odds collector with CLI automation that materializes daily markets into season-partitioned parquet outputs.
 - 🚧 Implementation of betting odds ingestion, unified modelling, automation, and delivery components is forthcoming.
 
 ## Design Highlights
