@@ -4,7 +4,8 @@ BetAnalytics is an in-development Python package for building automated, coheren
 
 ## Current Status
 - ✅ Repository scaffolding with a documented [design philosophy](docs/design_philosophy.md) that outlines architecture, tooling, and roadmap expectations.
-- 🚧 Implementation of data ingestion, modelling, automation, and delivery components is forthcoming.
+- ✅ Initial Basketball Reference collector with polite scraping defaults that exports five seasons of games, team, and player tables to versioned parquet datasets.
+- 🚧 Implementation of betting odds ingestion, unified modelling, automation, and delivery components is forthcoming.
 
 ## Design Highlights
 - **Unified Predictions** – Maintain a single probabilistic game view from which spread, total, and moneyline edges are derived.
@@ -16,8 +17,8 @@ BetAnalytics is an in-development Python package for building automated, coheren
 Refer to the [design philosophy](docs/design_philosophy.md) for detailed guidance on architecture, tooling choices, automation practices, and roadmap milestones. Keep this README synchronized with the codebase as implementation progresses.
 
 ## Next Steps
-1. Establish project tooling (`pyproject.toml`, linting, testing, CI) following the documented best practices.
-2. Implement data collectors for NBA statistics and betting odds with backfilling support.
+1. Expand project tooling (linting, testing, CI) following the documented best practices.
+2. Add betting odds collectors and automate daily backfills for both stats and odds.
 3. Build unified modelling pipelines, implement coherence enforcement tests, and register artefacts with a governed model registry.
 4. Add delivery mechanisms (CLI/API, notification services, social posting) with monitoring, incident runbooks, and responsible gaming messaging.
 5. Iterate on documentation (README, design philosophy, runbooks) to reflect new capabilities, ensuring coherence between README and implementation.
