@@ -22,8 +22,8 @@ dev = [
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["bet_analytics"]
+[tool.setuptools.packages.find]
+include = ["bet_analytics*"]
 
 [tool.bet_analytics]
 package-root = "bet_analytics"

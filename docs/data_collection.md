@@ -30,6 +30,15 @@ Outputs are written to `data/raw/basketball_reference/season_<year>/`. Each dire
 individual parquet tables (e.g., `games_october.parquet`, `team_per_game.parquet`,
 `player_advanced.parquet`) alongside a `metadata.json` file summarizing row counts and sources.
 
+### Troubleshooting & Logging
+
+- The collector now emits log records that identify tables with the `table_name` attribute. Use
+  this field to quickly spot missing or renamed Basketball Reference sections without clobbering
+  Python's reserved log record attributes.
+- Pandas 2.2+ deprecates passing literal HTML to `read_html`. The collector wraps HTML with
+  `StringIO` to remain forward compatible; if you update the parsing logic, maintain this pattern to
+  avoid future warnings.
+
 ## Downstream Expectations
 
 The saved tables serve as raw inputs for feature engineering and unified game simulations. Future

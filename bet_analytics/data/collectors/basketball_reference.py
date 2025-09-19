@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from io import StringIO
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -218,7 +219,8 @@ class BasketballReferenceCollector:
                 df = _extract_table(html, table_id=table_id)
             except TableNotFoundError:
                 logger.warning(
-                    "Team table not found", extra={"season": season, "table_id": table_id, "name": name}
+                    "Team table not found",
+                    extra={"season": season, "table_id": table_id, "table_name": name},
                 )
                 continue
             df = _clean_dataframe(df)
@@ -251,7 +253,8 @@ class BasketballReferenceCollector:
                 df = _extract_table(response.text, table_id=table_id)
             except TableNotFoundError:
                 logger.warning(
-                    "Player table not found", extra={"season": season, "table_id": table_id, "name": name}
+                    "Player table not found",
+                    extra={"season": season, "table_id": table_id, "table_name": name},
                 )
                 continue
             df = _clean_dataframe(df)
@@ -309,7 +312,7 @@ def _extract_table(html: str, *, table_id: str) -> DataFrame:
                 break
     if table is None:
         raise TableNotFoundError(f"table '{table_id}' not found")
-    frames = pd.read_html(str(table))
+    frames = pd.read_html(StringIO(str(table)))
     if not frames:
         raise TableNotFoundError(f"table '{table_id}' has no readable content")
     return frames[0]
