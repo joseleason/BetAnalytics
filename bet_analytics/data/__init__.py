@@ -9,6 +9,13 @@ from .collectors import (
     SportsbookReviewCollector,
     SportsbookReviewOddsWriter,
 )
+from .datasets import (
+    DatasetNotFoundError,
+    SeasonOddsData,
+    SportsbookReviewOddsDataset,
+    load_basketball_reference_team_stats,
+    load_sportsbookreview_odds,
+)
 
 __all__ = [
     "BasketballReferenceCollector",
@@ -16,4 +23,9 @@ __all__ = [
     "SeasonDataWriter",
     "SportsbookReviewCollector",
     "SportsbookReviewOddsWriter",
+    "DatasetNotFoundError",
+    "SeasonOddsData",
+    "SportsbookReviewOddsDataset",
+    "load_basketball_reference_team_stats",
+    "load_sportsbookreview_odds",
 ]

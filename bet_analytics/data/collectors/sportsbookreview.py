@@ -16,6 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 from pandas import DataFrame
 from requests import Response
+from requests.exceptions import HTTPError, RequestException
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,8 @@ class SportsbookReviewCollector:
         allowed_sportsbooks: Optional[Sequence[str]] = None,
         session: Optional[requests.Session] = None,
         request_timeout: float = 30.0,
+        max_attempts: int = 3,
+        retry_backoff_seconds: float = 1.5,
     ) -> None:
         self.session = session or requests.Session()
         self.rate_limiter = RateLimiter(rate_limit_seconds)
@@ -147,6 +150,14 @@ class SportsbookReviewCollector:
             self.allowed_sportsbooks = {name.lower() for name in allowed_sportsbooks}
         else:
             self.allowed_sportsbooks = None
+        if max_attempts < 1:
+            msg = "max_attempts must be at least 1"
+            raise ValueError(msg)
+        if retry_backoff_seconds < 0:
+            msg = "retry_backoff_seconds must be non-negative"
+            raise ValueError(msg)
+        self.max_attempts = int(max_attempts)
+        self.retry_backoff_seconds = float(retry_backoff_seconds)
 
     def collect_range(self, start_date: date, end_date: date) -> List[GameOddsRecord]:
         """Collect odds for each date in the inclusive range."""
@@ -250,10 +261,81 @@ class SportsbookReviewCollector:
         self, market: str, base_url: str, formatted_date: str
     ) -> Dict[str, MutableMapping[str, object]]:
         url = _market_url(base_url, formatted_date)
-        self.rate_limiter.wait()
-        response = self.session.get(url, timeout=self.request_timeout)
-        response.raise_for_status()
+        try:
+            response = self._request_with_retries(url, market)
+        except HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status and 500 <= status < 600:
+                logger.warning(
+                    "Skipping market due to upstream error",
+                    extra={
+                        "market": market,
+                        "url": url,
+                        "status": status,
+                        "attempts": self.max_attempts,
+                    },
+                )
+                return {}
+            raise
+        except RequestException as exc:
+            logger.warning(
+                "Skipping market due to request failure",
+                extra={
+                    "market": market,
+                    "url": url,
+                    "attempts": self.max_attempts,
+                    "error": str(exc),
+                },
+            )
+            return {}
+
         return self._parse_market_payload(response, market, url)
+
+    def _request_with_retries(self, url: str, market: str) -> Response:
+        attempt = 0
+        while True:
+            attempt += 1
+            self.rate_limiter.wait()
+            try:
+                response = self.session.get(url, timeout=self.request_timeout)
+                response.raise_for_status()
+                return response
+            except HTTPError as exc:
+                status = exc.response.status_code if exc.response is not None else None
+                retriable = status is not None and 500 <= status < 600
+                if not retriable or attempt >= self.max_attempts:
+                    raise
+                logger.warning(
+                    "Server error when fetching odds, retrying",
+                    extra={
+                        "market": market,
+                        "url": url,
+                        "attempt": attempt,
+                        "max_attempts": self.max_attempts,
+                        "status": status,
+                    },
+                )
+            except RequestException as exc:
+                if attempt >= self.max_attempts:
+                    raise
+                logger.warning(
+                    "Request error when fetching odds, retrying",
+                    extra={
+                        "market": market,
+                        "url": url,
+                        "attempt": attempt,
+                        "max_attempts": self.max_attempts,
+                        "error": str(exc),
+                    },
+                )
+
+            if attempt < self.max_attempts:
+                self._sleep_before_retry(attempt)
+
+    def _sleep_before_retry(self, attempt: int) -> None:
+        delay = min(self.retry_backoff_seconds * attempt, self.request_timeout)
+        if delay > 0:
+            time.sleep(delay)
 
     def _parse_market_payload(
         self, response: Response, market: str, url: str
@@ -271,6 +353,19 @@ class SportsbookReviewCollector:
 
         try:
             odds_tables = data["props"]["pageProps"]["oddsTables"]
+        except (KeyError, TypeError):
+            logger.warning("Unexpected odds payload structure", extra={"market": market, "url": url})
+            return {}
+
+        if not isinstance(odds_tables, list):
+            logger.warning("Unexpected odds payload structure", extra={"market": market, "url": url})
+            return {}
+
+        if not odds_tables:
+            logger.debug("No odds tables returned", extra={"market": market, "url": url})
+            return {}
+
+        try:
             table = odds_tables[0]["oddsTableModel"]["gameRows"]
         except (KeyError, IndexError, TypeError):
             logger.warning("Unexpected odds payload structure", extra={"market": market, "url": url})
@@ -337,7 +432,7 @@ class SportsbookReviewOddsWriter:
             logger.warning("No odds records to write")
             return
 
-        frame = frame.sort_values(["game_date", "game_id"]).reset_index(drop=True)
+        frame = _normalize_odds_frame(frame)
         for season, season_frame in frame.groupby("season"):
             season_dir = self.output_root / f"season_{season}"
             season_dir.mkdir(parents=True, exist_ok=True)
@@ -346,21 +441,22 @@ class SportsbookReviewOddsWriter:
             if data_path.exists() and not overwrite:
                 existing = pd.read_parquet(data_path)
                 combined = pd.concat([existing, season_frame], ignore_index=True)
-                combined = (
-                    combined.sort_values(["game_date", "game_id", "collected_at_utc"])
-                    .drop_duplicates(subset=["game_id", "game_date"], keep="last")
-                    .reset_index(drop=True)
-                )
             else:
-                combined = season_frame.reset_index(drop=True)
+                combined = season_frame.copy()
 
+            combined = _consolidate_odds_frame(combined)
             combined.to_parquet(data_path, index=False)
             metadata_path = season_dir / "metadata.json"
-            metadata = _build_metadata(combined, season)
+            table_manifest = _build_odds_manifest(combined)
+            metadata = _build_metadata(season, table_manifest)
             metadata_path.write_text(json.dumps(metadata, indent=2))
             logger.info(
                 "Wrote Sportsbook Review odds",
-                extra={"season": season, "path": str(data_path), "records": int(combined.shape[0])},
+                extra={
+                    "season": season,
+                    "path": str(data_path),
+                    "records": int(table_manifest["rows"]),
+                },
             )
 
 
@@ -371,9 +467,32 @@ def _records_to_dataframe(records: Iterable[GameOddsRecord]) -> DataFrame:
     return pd.DataFrame(rows)
 
 
-def _build_metadata(frame: DataFrame, season: int) -> Dict[str, object]:
-    min_date = frame["game_date"].min()
-    max_date = frame["game_date"].max()
+def _normalize_odds_frame(frame: DataFrame) -> DataFrame:
+    normalized = frame.copy()
+    if "collected_at_utc" in normalized.columns:
+        normalized["collected_at_utc"] = pd.to_datetime(
+            normalized["collected_at_utc"], utc=True, errors="coerce"
+        )
+        sort_columns = ["game_date", "game_id", "collected_at_utc"]
+    else:
+        sort_columns = ["game_date", "game_id"]
+    normalized = normalized.sort_values(sort_columns).reset_index(drop=True)
+    return normalized
+
+
+def _consolidate_odds_frame(frame: DataFrame) -> DataFrame:
+    consolidated = _normalize_odds_frame(frame)
+    if {"game_id", "game_date"}.issubset(consolidated.columns):
+        consolidated = consolidated.drop_duplicates(
+            subset=["game_id", "game_date"], keep="last"
+        )
+        consolidated = consolidated.reset_index(drop=True)
+    return consolidated
+
+
+def _build_odds_manifest(frame: DataFrame) -> Dict[str, object]:
+    min_date = frame["game_date"].min() if "game_date" in frame else None
+    max_date = frame["game_date"].max() if "game_date" in frame else None
     min_iso = pd.Timestamp(min_date).date().isoformat() if pd.notna(min_date) else None
     max_iso = pd.Timestamp(max_date).date().isoformat() if pd.notna(max_date) else None
     source_columns = ["spread_source_url", "moneyline_source_url", "totals_source_url"]
@@ -383,13 +502,20 @@ def _build_metadata(frame: DataFrame, season: int) -> Dict[str, object]:
         if column in frame
         for url in frame[column].dropna().unique().tolist()
     }
+    manifest = {
+        "rows": int(frame.shape[0]),
+        "columns": list(map(str, frame.columns)),
+        "date_range": {"min": min_iso, "max": max_iso},
+        "source_urls": sorted(sources),
+    }
+    return manifest
+
+
+def _build_metadata(season: int, table_manifest: Mapping[str, object]) -> Dict[str, object]:
     metadata = {
         "season": season,
         "generated_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
-        "records": int(frame.shape[0]),
-        "date_range": {"min": min_iso, "max": max_iso},
-        "columns": list(map(str, frame.columns)),
-        "source_urls": sorted(sources),
+        "tables": {"game_odds": dict(table_manifest)},
     }
     return metadata
 
